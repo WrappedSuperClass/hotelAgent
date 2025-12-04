@@ -1,0 +1,8 @@
+llama-index==0.11.23
+llama-index-embeddings-openai==0.2.5
+llama-index-llms-openai==0.2.16
+fastapi==0.115.5
+uvicorn==0.32.1
+python-dotenv==1.0.1
+pydantic==2.10.2
+

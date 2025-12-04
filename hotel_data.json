@@ -1,0 +1,113 @@
+{
+    "hotel_id": "DORMERO_MUC_KIRCHHEIM",
+    "name": "DORMERO Hotel München-Kirchheim Messe",
+    "brand": "DORMERO Hotels",
+    "address": "Räterstraße 9",
+    "postal_code": "85551",
+    "city": "Kirchheim b. München",
+    "country": "Germany",
+    "region": "Bavaria",
+    "latitude": null,
+    "longitude": null,
+  
+    "description_short": "Modernes Hotel mit direkter Nähe zur Messe München, zum ICM und zur Allianz Arena.",
+    "description_long": "Das DORMERO Hotel München-Kirchheim Messe ist der perfekte Ausgangspunkt zur Messe München, dem Internationalem Congress Center und der Allianz Arena. Die Innenstadt von München erreichen Sie in nur 20 Minuten mit der S-Bahn. Das Hotel bietet 143 Zimmer, 12 Veranstaltungsräume, die SONDERBAR sowie einen modernen Fitness- und Wellnessbereich.",
+  
+    "parking_spaces": 45,
+    "parking_fee_day": 15,
+    "parking_height_limit_m": 2.0,
+    "parking_reservation_possible": false,
+  
+    "distance_airport_km": 30,
+    "driving_time_airport_min": 26,
+    "public_transport_description": "S2 Heimstetten, 20 Minuten zur Innenstadt. Bushaltestelle 'Heimstetten, Räterzentrum' 80 m entfernt.",
+    "distance_city_center_min": 20,
+    "sbahn_line": "S2 Erding",
+    "distance_sbahn_station_m": null,
+    "bus_line_to_messe": "263",
+    "bus_stop_distance_m": 80,
+    "time_to_messe_public_min": 30,
+    "distance_messe_km": 8.5,
+    "time_to_messe_car_min": 10,
+  
+    "total_rooms": 143,
+    "room_categories": [
+      "Einzelzimmer",
+      "DORMERO Zimmer",
+      "DORMERO Komfort Zimmer",
+      "Junior Suite"
+    ],
+    "room_details": {
+      "Einzelzimmer": { "sqm": 14, "count": 31 },
+      "DORMERO Zimmer": { "sqm": 22, "count": 34 },
+      "Komfort Zimmer": { "sqm": 22, "count": 70 },
+      "Junior Suite": { "sqm_min": 30, "sqm_max": 46, "count": 8 }
+    },
+  
+    "non_smoking_hotel": true,
+    "bed_options": ["Einzelbett", "Twin", "Kingsize"],
+    "room_features": ["Badewanne oder Dusche", "Fön", "Kosmetikspiegel", "Schreibtisch", "Safe"],
+  
+    "bar_name": "SONDERBAR",
+    "bar_description": "Frech und erfrischend anders. Die ungezwungene Bar im DORMERO Hotel.",
+    "bar_opening_hours": "täglich 14:30 – 23:00",
+    "cashless_only": true,
+  
+    "fitness_available": true,
+    "fitness_hours": "7:00 – 21:00",
+    "fitness_equipment": [
+      "Laufband",
+      "Rudergerät",
+      "Hantelbank",
+      "Kurzhantelset",
+      "Stepper",
+      "Fahrrad"
+    ],
+    "sauna_available": true,
+    "sauna_hours": "16:00 – 22:00",
+    "sauna_preheat_time_min": 30,
+    "wellness_area_description": "Wellnessbereich mit Dampfbad, Ruheraum und moderner Saunaanlage.",
+  
+    "free_wifi": true,
+    "free_cosmetics": true,
+    "free_light_system": true,
+    "free_sleeping_system": true,
+    "free_minibar_day1": true,
+    "free_fitness": true,
+    "free_wellness": true,
+    "free_late_checkout": "14:00 sonntags & feiertags",
+    "free_pets": true,
+    "free_flatscreen_55": true,
+  
+    "meeting_rooms_total": 12,
+    "meeting_rooms": {
+      "Carolina Cik": {
+        "sqm": 152,
+        "height_m": 3.14,
+        "length_m": 14.0,
+        "width_m": 10.85,
+        "daylight": true,
+        "max_capacity": 120,
+        "seating_options": "verschiedene Bestuhlungsarten",
+        "free_wifi": true
+      },
+      "Carina Cörbchen": {
+        "sqm": 67,
+        "height_m": 2.70,
+        "length_m": 10.0,
+        "width_m": 6.70,
+        "daylight": true,
+        "max_capacity": 50,
+        "seating_options": "verschiedene Bestuhlungsarten",
+        "free_wifi": true
+      }
+    },
+  
+    "event_team_available": true,
+    "event_technical_equipment_available": "Zusätzliche Ausstattung auf Anfrage",
+  
+    "phone": "+49 89 905040",
+    "email": "kirchheim@dormero.de",
+    "website": "https://www.dormero.de"
+  }
+  
