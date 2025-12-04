@@ -19,5 +19,5 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 
 # Retrieval settings
 TOP_K_RESULTS = 3
-SIMILARITY_THRESHOLD = 0.7
+SIMILARITY_THRESHOLD = 0.3  
 
