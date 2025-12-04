@@ -48,6 +48,7 @@
     "bed_options": ["Einzelbett", "Twin", "Kingsize"],
     "room_features": ["Badewanne oder Dusche", "Fön", "Kosmetikspiegel", "Schreibtisch", "Safe"],
   
+    "bar_available": true,
     "bar_name": "SONDERBAR",
     "bar_description": "Frech und erfrischend anders. Die ungezwungene Bar im DORMERO Hotel.",
     "bar_opening_hours": "täglich 14:30 – 23:00",
