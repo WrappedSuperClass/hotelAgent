@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from rag.query_engine import get_query_engine, QueryResult
 from rag.indexer import rebuild_index
-from rag.config import ROOM_PRICING, MEETING_ROOM_PRICING, OPENAI_API_KEY
+from rag.config import ROOM_PRICING, MEETING_ROOM_PRICING, OPENAI_API_KEY, INDEX_STORAGE_PATH
 
 
 # Request/Response models
@@ -76,6 +76,7 @@ class RoomOption(BaseModel):
 
 class BookingResponse(BaseModel):
     """Response model for booking inquiry."""
+    booking_id: str
     original_request: str
     room_type: str
     check_in: date
@@ -256,6 +257,68 @@ def _get_meeting_room_options(
     return options
 
 
+# Booking storage functions
+PENDING_BOOKINGS_PATH = INDEX_STORAGE_PATH / "pending_bookings.json"
+CONFIRMED_BOOKINGS_PATH = INDEX_STORAGE_PATH / "confirmed_bookings.json"
+
+
+def _load_pending_bookings() -> list[dict]:
+    """Load pending bookings from storage."""
+    if not PENDING_BOOKINGS_PATH.exists():
+        return []
+    try:
+        with open(PENDING_BOOKINGS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _save_pending_bookings(bookings: list[dict]) -> None:
+    """Save pending bookings to storage."""
+    PENDING_BOOKINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(PENDING_BOOKINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(bookings, f, indent=2, default=str)
+
+
+def _load_confirmed_bookings() -> list[dict]:
+    """Load confirmed bookings from storage."""
+    if not CONFIRMED_BOOKINGS_PATH.exists():
+        return []
+    try:
+        with open(CONFIRMED_BOOKINGS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _save_confirmed_bookings(bookings: list[dict]) -> None:
+    """Save confirmed bookings to storage."""
+    CONFIRMED_BOOKINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIRMED_BOOKINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(bookings, f, indent=2, default=str)
+
+
+def _get_next_booking_id() -> str:
+    """Generate next sequential booking ID (BK-001, BK-002, etc.)."""
+    pending = _load_pending_bookings()
+    confirmed = _load_confirmed_bookings()
+    
+    # Get all existing booking IDs
+    all_ids = set()
+    for booking in pending:
+        all_ids.add(booking.get("booking_id", ""))
+    for booking in confirmed:
+        all_ids.add(booking.get("booking_id", ""))
+    
+    # Find next available ID
+    counter = 1
+    while True:
+        booking_id = f"BK-{counter:03d}"
+        if booking_id not in all_ids:
+            return booking_id
+        counter += 1
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Hotel RAG API",
@@ -415,7 +478,12 @@ async def request_booking(request: BookingRequest):
     else:
         message = f"No {room_type} rooms available for {guests} guest(s). Please contact us for group bookings or alternative arrangements."
     
-    return BookingResponse(
+    # Generate booking ID
+    booking_id = _get_next_booking_id()
+    
+    # Create booking response
+    booking_response = BookingResponse(
+        booking_id=booking_id,
         original_request=request.request,
         room_type=room_type,
         check_in=check_in,
@@ -431,4 +499,137 @@ async def request_booking(request: BookingRequest):
         contact_phone=hotel_data.get("phone", ""),
         message=message
     )
+    
+    # Store pending booking
+    pending_booking = {
+        "booking_id": booking_id,
+        "original_request": request.request,
+        "room_type": room_type,
+        "check_in": check_in.isoformat(),
+        "check_out": check_out.isoformat(),
+        "guests": guests,
+        "include_catering": parsed.include_catering,
+        "duration_nights": duration if room_type == "hotel" else None,
+        "duration_days": duration if room_type == "meeting" else None,
+        "available_options": [option.model_dump() for option in options],
+        "hotel_name": hotel_data.get("name", "DORMERO Hotel"),
+        "hotel_address": f"{hotel_data.get('address', '')}, {hotel_data.get('postal_code', '')} {hotel_data.get('city', '')}",
+        "contact_email": hotel_data.get("email", ""),
+        "contact_phone": hotel_data.get("phone", ""),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Load existing pending bookings and add new one
+    pending_bookings = _load_pending_bookings()
+    pending_bookings.append(pending_booking)
+    _save_pending_bookings(pending_bookings)
+    
+    return booking_response
+
+
+class ConfirmBookingRequest(BaseModel):
+    """Request model for confirming a booking."""
+    booking_id: str = Field(..., description="Booking ID to confirm")
+    room_name: str = Field(..., description="Name of the room option to confirm")
+
+
+class ConfirmBookingResponse(BaseModel):
+    """Response model for booking confirmation."""
+    success: bool
+    booking_id: str
+    message: str
+    confirmed_booking: dict[str, Any]
+
+
+@app.post("/confirm-booking", response_model=ConfirmBookingResponse)
+async def confirm_booking(request: ConfirmBookingRequest):
+    """
+    Confirm a booking request by selecting a specific room option.
+    
+    Requires:
+    - **booking_id**: The booking ID returned from /booking-request
+    - **room_name**: The name of the room option to confirm (must match one of the available_options)
+    
+    The booking will be moved from pending to confirmed status.
+    """
+    # Check if booking is already confirmed
+    confirmed_bookings = _load_confirmed_bookings()
+    for confirmed in confirmed_bookings:
+        if confirmed.get("booking_id") == request.booking_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Booking already confirmed"
+            )
+    
+    # Load pending bookings
+    pending_bookings = _load_pending_bookings()
+    pending_booking = None
+    for booking in pending_bookings:
+        if booking.get("booking_id") == request.booking_id:
+            pending_booking = booking
+            break
+    
+    if not pending_booking:
+        raise HTTPException(
+            status_code=400,
+            detail="Booking ID not found"
+        )
+    
+    # Find the selected room option
+    available_options = pending_booking.get("available_options", [])
+    selected_room = None
+    for option in available_options:
+        if option.get("room_name") == request.room_name:
+            selected_room = option
+            break
+    
+    if not selected_room:
+        raise HTTPException(
+            status_code=400,
+            detail="Room option not available for this booking"
+        )
+    
+    # Create confirmed booking
+    confirmed_booking = {
+        "booking_id": request.booking_id,
+        "original_request": pending_booking.get("original_request"),
+        "room_type": pending_booking.get("room_type"),
+        "check_in": pending_booking.get("check_in"),
+        "check_out": pending_booking.get("check_out"),
+        "guests": pending_booking.get("guests"),
+        "include_catering": pending_booking.get("include_catering", False),
+        "duration_nights": pending_booking.get("duration_nights"),
+        "duration_days": pending_booking.get("duration_days"),
+        "selected_room": selected_room,
+        "hotel_name": pending_booking.get("hotel_name"),
+        "hotel_address": pending_booking.get("hotel_address"),
+        "contact_email": pending_booking.get("contact_email"),
+        "contact_phone": pending_booking.get("contact_phone"),
+        "confirmation_timestamp": datetime.now().isoformat()
+    }
+    
+    # Remove from pending and add to confirmed
+    pending_bookings = [b for b in pending_bookings if b.get("booking_id") != request.booking_id]
+    _save_pending_bookings(pending_bookings)
+    
+    confirmed_bookings.append(confirmed_booking)
+    _save_confirmed_bookings(confirmed_bookings)
+    
+    return ConfirmBookingResponse(
+        success=True,
+        booking_id=request.booking_id,
+        message=f"Booking {request.booking_id} confirmed for {selected_room.get('room_name')}",
+        confirmed_booking=confirmed_booking
+    )
+
+
+@app.get("/confirmed-bookings", response_model=list[dict[str, Any]])
+async def get_confirmed_bookings():
+    """
+    Get all confirmed bookings.
+    
+    Returns a list of all confirmed bookings with their details and selected room options.
+    """
+    confirmed_bookings = _load_confirmed_bookings()
+    return confirmed_bookings
 
