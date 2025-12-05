@@ -14,6 +14,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set. Please create a .env file with your API key.")
 
+# ElevenLabs Configuration
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+if not ELEVENLABS_API_KEY:
+    raise ValueError("ELEVENLABS_API_KEY environment variable is not set. Please create a .env file with your API key.")
+
 # Embedding model
 EMBEDDING_MODEL = "text-embedding-3-small"
 

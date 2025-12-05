@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from rag.query_engine import get_query_engine, QueryResult
 from rag.indexer import rebuild_index
 from rag.config import ROOM_PRICING, MEETING_ROOM_PRICING, OPENAI_API_KEY, INDEX_STORAGE_PATH
+from rag.elevenlabs_client import get_all_conversations, get_conversation_by_id
 
 
 # Request/Response models
@@ -632,4 +633,39 @@ async def get_confirmed_bookings():
     """
     confirmed_bookings = _load_confirmed_bookings()
     return confirmed_bookings
+
+
+@app.get("/getallconversations")
+async def get_all_conversations_endpoint():
+    """
+    Get all conversations from ElevenLabs API.
+    
+    Returns conversation_id, message_count, and transcript_summary for each conversation.
+    """
+    try:
+        result = get_all_conversations()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching conversations: {str(e)}")
+
+
+@app.get("/getconversationbyid/{conversation_id}")
+async def get_conversation_by_id_endpoint(conversation_id: str):
+    """
+    Get a specific conversation by ID from ElevenLabs API.
+    
+    Args:
+        conversation_id: The ID of the conversation to retrieve
+        
+    Returns the full conversation data from ElevenLabs API.
+    """
+    try:
+        result = get_conversation_by_id(conversation_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching conversation: {str(e)}")
 
