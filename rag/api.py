@@ -2,23 +2,18 @@
 FastAPI REST endpoint for hotel data RAG queries.
 """
 import json
-from datetime import date
-from enum import Enum
+import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from rag.query_engine import get_query_engine, QueryResult
 from rag.indexer import rebuild_index
-from rag.config import ROOM_PRICING, MEETING_ROOM_PRICING
-
-
-class RoomType(str, Enum):
-    """Type of room to book."""
-    HOTEL = "hotel"
-    MEETING = "meeting"
+from rag.config import ROOM_PRICING, MEETING_ROOM_PRICING, OPENAI_API_KEY
 
 
 # Request/Response models
@@ -54,28 +49,12 @@ class HealthResponse(BaseModel):
 
 
 class BookingRequest(BaseModel):
-    """Request model for room booking inquiry."""
-    room_type: RoomType = Field(
+    """Request model for natural language booking inquiry."""
+    request: str = Field(
         ...,
-        description="Type of room: 'hotel' for accommodation or 'meeting' for conference rooms"
-    )
-    check_in: date = Field(
-        ...,
-        description="Check-in date (YYYY-MM-DD)"
-    )
-    check_out: date = Field(
-        ...,
-        description="Check-out date (YYYY-MM-DD)"
-    )
-    guests: int = Field(
-        ...,
-        ge=1,
-        le=150,
-        description="Number of guests/attendees"
-    )
-    include_catering: bool = Field(
-        default=False,
-        description="Include catering (only applicable for meeting rooms)"
+        description="Natural language booking request describing your needs",
+        min_length=10,
+        max_length=1000
     )
 
 
@@ -97,10 +76,12 @@ class RoomOption(BaseModel):
 
 class BookingResponse(BaseModel):
     """Response model for booking inquiry."""
+    original_request: str
     room_type: str
     check_in: date
     check_out: date
     guests: int
+    include_catering: bool = False
     duration_nights: int | None = None
     duration_days: int | None = None
     available_options: list[RoomOption]
@@ -109,6 +90,63 @@ class BookingResponse(BaseModel):
     contact_email: str
     contact_phone: str
     message: str
+
+
+class ParsedBookingDetails(BaseModel):
+    """Parsed booking details from natural language."""
+    room_type: str  # "hotel" or "meeting"
+    check_in: str  # YYYY-MM-DD
+    check_out: str  # YYYY-MM-DD
+    guests: int
+    include_catering: bool = False
+    parsing_notes: str | None = None
+
+
+def _parse_booking_request(natural_request: str) -> ParsedBookingDetails:
+    """Use OpenAI to parse natural language booking request into structured data."""
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    system_prompt = f"""You are a hotel booking assistant. Extract booking details from the user's natural language request.
+Today's date is {today}.
+
+Extract the following information:
+- room_type: "hotel" for accommodation/sleeping or "meeting" for conference/meeting rooms
+- check_in: The start date in YYYY-MM-DD format
+- check_out: The end date in YYYY-MM-DD format  
+- guests: Number of people (default to 1 if not specified)
+- include_catering: true if catering/food is mentioned for meeting rooms, false otherwise
+
+IMPORTANT:
+- If dates are relative (like "next Monday", "December 15th"), convert to YYYY-MM-DD
+- If only one date is given, assume a 1-night stay for hotel or 1-day booking for meeting
+- If year is not specified, assume the current or next occurrence of that date
+- For meeting rooms, look for keywords like: meeting, conference, event, presentation, workshop
+- For hotel rooms, look for keywords like: stay, sleep, overnight, accommodation, room
+
+Respond with ONLY valid JSON in this exact format:
+{{"room_type": "hotel", "check_in": "YYYY-MM-DD", "check_out": "YYYY-MM-DD", "guests": 1, "include_catering": false, "parsing_notes": "optional notes about assumptions made"}}"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": natural_request}
+        ],
+        temperature=0.1,
+        max_tokens=200
+    )
+    
+    response_text = response.choices[0].message.content.strip()
+    
+    # Extract JSON from response (handle markdown code blocks)
+    json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+    if not json_match:
+        raise ValueError(f"Could not parse booking details from: {natural_request}")
+    
+    parsed = json.loads(json_match.group())
+    return ParsedBookingDetails(**parsed)
 
 
 def _load_hotel_data() -> dict:
@@ -286,28 +324,65 @@ async def rebuild_hotel_index():
 @app.post("/booking-request", response_model=BookingResponse)
 async def request_booking(request: BookingRequest):
     """
-    Request available rooms for booking.
+    Request available rooms for booking using natural language.
     
-    Provide check-in/check-out dates, number of guests, and room type
-    to get a list of available options with pricing.
+    Send a natural language request describing your booking needs.
+    The system will parse your request and return available options with pricing.
     
-    - **room_type**: 'hotel' for accommodation or 'meeting' for conference rooms
-    - **check_in**: Start date of the booking
-    - **check_out**: End date of the booking
-    - **guests**: Number of people (1-150)
-    - **include_catering**: Add catering service (meeting rooms only)
+    **Required information in your request:**
+    - Type of room: hotel room (for sleeping) or meeting room (for conferences)
+    - Date(s): when you want to check in and check out
+    - Number of guests/attendees
+    - For meeting rooms: whether you need catering (optional)
+    
+    **Example requests:**
+    - "I need a hotel room for 2 people from December 10th to 12th"
+    - "Book a meeting room for 30 attendees on January 15th with catering"
+    - "Looking for accommodation for 1 guest next Friday to Sunday"
     
     Returns available room options sorted by price with total cost calculation.
     """
+    # Parse natural language request
+    try:
+        parsed = _parse_booking_request(request.request)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not understand booking request. Please include: room type (hotel/meeting), dates, and number of guests. Error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error parsing request: {str(e)}"
+        )
+    
+    # Convert parsed dates to date objects
+    try:
+        check_in = datetime.strptime(parsed.check_in, "%Y-%m-%d").date()
+        check_out = datetime.strptime(parsed.check_out, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not parse dates from your request. Please specify clear dates."
+        )
+    
     # Validate dates
-    if request.check_out <= request.check_in:
+    if check_out <= check_in:
         raise HTTPException(
             status_code=400,
             detail="Check-out date must be after check-in date"
         )
     
+    # Validate guests
+    guests = parsed.guests
+    if guests < 1 or guests > 150:
+        raise HTTPException(
+            status_code=400,
+            detail="Number of guests must be between 1 and 150"
+        )
+    
     # Calculate duration
-    duration = (request.check_out - request.check_in).days
+    duration = (check_out - check_in).days
     
     try:
         hotel_data = _load_hotel_data()
@@ -316,32 +391,39 @@ async def request_booking(request: BookingRequest):
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Invalid hotel data format")
     
+    # Determine room type
+    room_type = parsed.room_type.lower()
+    
     # Get available options based on room type
-    if request.room_type == RoomType.HOTEL:
-        options = _get_hotel_room_options(hotel_data, request.guests, duration)
+    if room_type == "hotel":
+        options = _get_hotel_room_options(hotel_data, guests, duration)
         duration_label = "nights"
     else:
         options = _get_meeting_room_options(
             hotel_data, 
-            request.guests, 
+            guests, 
             duration,
-            request.include_catering
+            parsed.include_catering
         )
         duration_label = "days"
     
     # Build response message
     if options:
-        message = f"Found {len(options)} available {request.room_type.value} room(s) for {request.guests} guest(s) over {duration} {duration_label}."
+        message = f"Found {len(options)} available {room_type} room(s) for {guests} guest(s) over {duration} {duration_label}."
+        if parsed.parsing_notes:
+            message += f" Note: {parsed.parsing_notes}"
     else:
-        message = f"No {request.room_type.value} rooms available for {request.guests} guest(s). Please contact us for group bookings or alternative arrangements."
+        message = f"No {room_type} rooms available for {guests} guest(s). Please contact us for group bookings or alternative arrangements."
     
     return BookingResponse(
-        room_type=request.room_type.value,
-        check_in=request.check_in,
-        check_out=request.check_out,
-        guests=request.guests,
-        duration_nights=duration if request.room_type == RoomType.HOTEL else None,
-        duration_days=duration if request.room_type == RoomType.MEETING else None,
+        original_request=request.request,
+        room_type=room_type,
+        check_in=check_in,
+        check_out=check_out,
+        guests=guests,
+        include_catering=parsed.include_catering,
+        duration_nights=duration if room_type == "hotel" else None,
+        duration_days=duration if room_type == "meeting" else None,
         available_options=options,
         hotel_name=hotel_data.get("name", "DORMERO Hotel"),
         hotel_address=f"{hotel_data.get('address', '')}, {hotel_data.get('postal_code', '')} {hotel_data.get('city', '')}",
